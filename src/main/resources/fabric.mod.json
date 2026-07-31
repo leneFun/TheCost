@@ -1,6 +1,6 @@
 {
 	"schemaVersion": 1,
-	"id": "the-cost",
+	"id": "thecost",
 	"version": "${version}",
 	"name": "The Cost",
 	"description": "This is an example description! Tell everyone what your mod is about!",
@@ -12,7 +12,7 @@
 		"sources": "https://github.com/FabricMC/fabric-example-mod"
 	},
 	"license": "CC0-1.0",
-	"icon": "assets/the-cost/icon.png",
+	"icon": "assets/thecost/icon.png",
 	"environment": "*",
 	"entrypoints": {
 		"main": [
@@ -26,9 +26,9 @@
 		]
 	},
 	"mixins": [
-		"the-cost.mixins.json",
+		"thecost.mixins.json",
 		{
-			"config": "the-cost.client.mixins.json",
+			"config": "thecost.client.mixins.json",
 			"environment": "client"
 		}
 	],

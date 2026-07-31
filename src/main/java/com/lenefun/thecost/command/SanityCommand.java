@@ -2,6 +2,8 @@ package com.lenefun.thecost.command;
 
 import com.lenefun.thecost.sanity.SanityData;
 import com.lenefun.thecost.sanity.SanityStage;
+import com.lenefun.thecost.sanity.environment.SanityEnvironmentManager;
+import com.lenefun.thecost.sanity.environment.SanityEnvironmentSnapshot;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.server.command.ServerCommandSource;
@@ -23,6 +25,9 @@ public final class SanityCommand {
 						.then(literal("sanity")
 								.then(literal("get")
 										.executes(context -> report(context.getSource())))
+								.then(literal("environment")
+										.requires(source -> source.hasPermissionLevel(MODIFY_PERMISSION_LEVEL))
+										.executes(context -> reportEnvironment(context.getSource())))
 								.then(literal("set")
 										.requires(source -> source.hasPermissionLevel(MODIFY_PERMISSION_LEVEL))
 										.then(argument("value", IntegerArgumentType.integer())
@@ -53,5 +58,19 @@ public final class SanityCommand {
 	private static int add(ServerCommandSource source, int delta) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
 		SanityData.add(source.getPlayerOrThrow(), delta);
 		return report(source);
+	}
+
+	private static int reportEnvironment(ServerCommandSource source) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+		ServerPlayerEntity player = source.getPlayerOrThrow();
+		SanityEnvironmentSnapshot snapshot = SanityEnvironmentManager.inspect(player);
+		int remainingTicks = SanityEnvironmentManager.getTicksUntilNextChange(player, snapshot);
+		String nextChange = remainingTicks < 0 ? "none" : (remainingTicks / 20) + "s";
+		source.sendFeedback(() -> Text.literal(
+				"Sanity environment: light=" + snapshot.lightLevel()
+						+ ", warmSource=" + snapshot.warmSourceNearby()
+						+ ", state=" + snapshot.state().getDisplayName()
+						+ ", eligible=" + SanityEnvironmentManager.isEligible(player)
+						+ ", nextChange=" + nextChange), false);
+		return snapshot.lightLevel();
 	}
 }

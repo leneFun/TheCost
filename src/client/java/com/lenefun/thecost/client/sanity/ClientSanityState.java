@@ -29,7 +29,7 @@ public final class ClientSanityState {
 		synced = true;
 	}
 
-	static void reset() {
+	public static void reset() {
 		sanity = SanityData.DEFAULT_VALUE;
 		stage = SanityStage.fromValue(sanity);
 		synced = false;

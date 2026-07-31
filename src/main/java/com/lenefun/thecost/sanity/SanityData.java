@@ -36,7 +36,7 @@ public final class SanityData {
 	}
 
 	public static void copy(ServerPlayerEntity source, ServerPlayerEntity destination) {
-		set(destination, get(source));
+		holder(destination).thecost$setSanitySilently(get(source));
 	}
 
 	private static SanityHolder holder(ServerPlayerEntity player) {
