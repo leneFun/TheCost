@@ -154,7 +154,87 @@ Fractured 矿脉感知 v1 已实现：
 
 Sanity 范围已由用户明确收敛：复杂配方限制从计划中删除；异界入口、自定义维度和 Boss 裂隙从计划中删除；隐藏实体保留为后续 Sanity 核心内容。不得在后续任务中沿用被删除的早期规划，除非用户再次明确改变决定。
 
-Sanity 后续尚待完成：Fractured 的祭坛互动与隐藏实体，以及 Ascended 的契约失效等仍保留玩法。隐藏实体是后续 Sanity 核心；下一阶段必须由后续任务明确选择。本轮不实现隐藏实体、季节、肢体、Boss、祭坛或新的理智来源。
+Sanity 后续尚待完成：Fractured 的祭坛互动与隐藏实体，以及 Ascended 的契约失效等仍保留玩法。隐藏实体是后续 Sanity 核心；下一阶段必须由后续任务明确选择。不得无任务授权扩展季节、Boss、祭坛或新的理智来源。
+
+The Witness 可召唤实体基础版已实现：
+
+- GeckoLib 固定使用与 Minecraft 1.20.1/Fabric 兼容的 `4.2.4`，依赖坐标为 `software.bernie.geckolib:geckolib-fabric-1.20.1:4.2.4`；公共入口在实体注册前调用 `GeckoLib.initialize()`。源码仍以 Java 17 为目标，未升级 Minecraft、Loom 或 Fabric API。
+- 实体 ID 为 `thecost:witness`，属于敌对生物组；基础碰撞箱为 `0.75 × 2.75` 格，生命 30、攻击 5、移动速度 0.28、追踪范围 24。
+- v1 AI 包含游泳、近战、游荡、注视玩家、环顾、反击及主动选择玩家目标。仅复用原版稳定 Goal，不加入自然生成、生物群系规则、掉落、Boss、祭坛、维度或 Sanity 生成逻辑。
+- 服务端实体实现 GeckoLib `GeoEntity`。持续动画控制器在 idle、walk 和 observe 间切换：移动时 walk；有攻击目标、基本静止且尚未进入近战距离时 observe；其余为 idle。
+- 一次性动作控制器使用 GeckoLib triggerable animation：实体首次加入世界后的首个服务端 tick 触发 reveal；真实 `tryAttack` 成功后触发 attack；服务端死亡回调触发 death，并在动画末帧保持姿态。实体自身以 `thecost_reveal_played` 布尔 NBT 记录 reveal 已播放，避免区块卸载、服务器重启后重复；该键不涉及玩家 Sanity 数据。
+- 客户端 `GeoModel` 严格引用 `assets/thecost/geo/witness.geo.json`、`assets/thecost/textures/entity/witness.png` 和 `assets/thecost/animations/witness.animation.json`；`GeoEntityRenderer` 阴影半径为 0.35，不添加发光层。现有模型高度与实体碰撞箱相符，本轮不做渲染缩放或原点偏移。
+- 普通 `/summon thecost:witness` 创建的是 unbound 调试实体，继续对所有客户端正常渲染，可用于验证注册、模型、纹理、动画与 AI；未添加自然生成或刷怪蛋。Sanity 驱动的 managed 实体采用下文记录的 owner-only 规则。
+
+The Witness 专属音效与死亡渲染修正已实现：
+
+- 注册服务端广播的 `thecost:entity.witness.ambient`、`thecost:entity.witness.hurt`、`thecost:entity.witness.death` 三个 `SoundEvent`；实体通过原版 `getAmbientSound`、`getHurtSound`、`getDeathSound` 返回事件，不在客户端 tick 中手动播放。
+- 音效源自 OpenGameArt 的 **80 CC0 creature SFX #2**，作者/上传者为 rubberduck，页面明确标记 CC0。项目根目录 `SOUND_CREDITS.md` 记录原页面、许可证、原始文件到成品文件的映射及播放时处理；原始 ZIP 保留于 `art/audio_sources/witness/` 供审计，不得将这些声音宣称为 The Cost 原创录音。
+- 最终声音包含 `ambient_1.ogg`、`ambient_2.ogg`、`ambient_3.ogg`、`hurt_1.ogg`、`hurt_2.ogg` 和 `death.ogg`，均保持源文件的合法 stereo 48 kHz OGG Vorbis 位流；通过 `sounds.json` 设置低音量与降调播放。环境音最小延迟由原版 80 ticks 提高到 240 ticks，新实体也从该负延迟开始计时，并继续使用原版随机 ambient 调度，不循环播放。
+- death 使用独立且最后注册的 GeckoLib triggerable controller，`onDeath` 先执行原版死亡逻辑，再由服务端只触发一次 death 动画；正常伤害和 `/kill` 使用同一路径。Witness 自身覆写 `updatePostDeath`，只把原版 20 ticks 的死亡移除阈值延长到 26 ticks，沿用原版死亡粒子状态和 `KILLED` 移除原因，不复活、不重复执行掉落/经验，也不继续攻击。
+- Witness 专属 `GeoEntityRenderer#getDeathMaxRotation` 在死亡时返回 0，取消 GeckoLib/原版整体侧翻；`getPackedOverlay` 仅在 `isDead()` 或 `deathTime > 0` 时返回无 overlay，取消死亡红层。活着且 `hurtTime > 0` 时仍调用父类实现，因此普通受击红闪保留。不得用全局 Mixin 改变其他实体。
+
+The Witness 的 Sanity 驱动生成与私人绑定 v1 已实现：
+
+- `WitnessSanityPolicy` 是 managed Witness 规则的唯一集中来源。`SanityStage` 继续提供 20/60 边界；Fractured 内部分界只定义一次为 `FRACTURED_GLIMPSE_MINIMUM = 40`。精确映射为：60–100 `NONE`，40–59 `GLIMPSE`，20–39 `HUNT`，0–19 `ASCENDED`。
+- 服务器每 20 ticks 评估一次在线、存活、非 creative、非 spectator 玩家。每名玩家最多 1 只 managed Witness；内存索引按 owner UUID 保存当前实体引用与冷却，不扫描全部维度或全部实体。
+- `GLIMPSE` 在 16–26 格生成，存续 100–180 ticks（5–9 秒），玩家靠近到 8 格、模式变化或超时即无掉落清理；冷却 600–1200 ticks（30–60 秒）。它不持有攻击目标、不造成伤害，轻微游走，静止时凝视 owner 并播放 observe。
+- `HUNT` 在 12–22 格生成，保持 30 生命、5 攻击、0.28 基础移速，持续追踪且只攻击 owner；被杀或丢失后冷却 300–600 ticks（15–30 秒）。
+- `ASCENDED` 在 8–16 格生成，冷却 200–400 ticks（10–20 秒），只追踪 owner；使用固定 UUID 的 transient 移速 `MULTIPLY_TOTAL +0.15` 表现更主动，离开该模式时只移除该 modifier，不重复叠加。
+- 每次到期生成最多尝试 12 个水平位置；每个候选只在玩家 Y 上下 6 格寻找落脚点。候选区块必须已加载，空间必须无碰撞、有可站立完整上表面、不含液体或火、位于世界边界内；不强制加载区块。失败后等待 100 ticks 再尝试。
+- managed 状态、owner UUID、模式和 GLIMPSE 到期世界时间同时写入 Witness 自身 DataTracker 与 NBT；不写玩家 NBT。`thecost_reveal_played` 保持兼容。实体设为 persistent，但超过 owner 64 格、owner 不存在/死亡、不同维度、资格或模式不匹配时由管理器清理，不持有区块加载票。
+- 玩家加入、退出、死亡、重生、跨维度、切换 creative/spectator、恢复 Lucid 和服务器停止均清理或重置对应索引。实体加载事件校正重复和孤儿；实体卸载事件只更新对应 owner 索引并安排冷却，不周期扫描世界。普通 `/summon thecost:witness` 创建的 unbound 实体不受管理器清理。
+- managed Witness 的目标设置和 `tryAttack` 都只允许 owner；GLIMPSE 永不攻击。伤害入口只接受 owner（含 owner 发射物）和原版 `generic_kill`，其他玩家、宠物、环境或生物伤害被拒绝。managed 实体不掉战利品与经验；阶段/生命周期清理使用 `discard`，不伪造死亡。
+- managed Witness 与非 owner 实体的 `collidesWith`/`pushAwayFrom` 返回隔离结果，并拒绝非 owner 交互；owner 仍可碰撞、攻击和正常击杀。实体跟踪包仍可能发给其他客户端，这是 v1 的明确限制，但不为 managed 实体增加全局 Mixin。
+- 客户端 renderer 仅在本地玩家 UUID 等于 owner、`ClientSanityState` 已同步且阶段不是 Lucid 时渲染 managed Witness；否则模型、阴影和名牌均不进入渲染。unbound 调试实体继续对所有玩家可见。
+- managed 实体覆写 `playSound`，不调用附近广播；服务器使用 `PlaySoundS2CPacket` 按 Witness 世界坐标只发送给同维度 owner，seed 使用实体随机源。环境、受击、死亡及其他实体声音不会传给看不见它的玩家；unbound 实体继续调用原版广播。
+- 管理员调试命令 `/thecost sanity witness` 返回期望模式、活动模式、实体 UUID、owner 距离、剩余冷却和参与资格。
+
+统一人工测试追加：59/40 为 GLIMPSE，39/20 为 HUNT，19/0 为 ASCENDED，60+ 为 NONE；反复写入相同 Sanity 不重复生成。多人分别验证 owner-only 模型、名牌、声音、目标、伤害和碰撞；验证 owner 正常击杀与 `/kill` 均播放 death 且无掉落经验；验证靠近 GLIMPSE、超时、恢复 Lucid、死亡、退出、重生、跨维度、模式切换、实体丢失和服务器停止后的清理与冷却。
+
+玩家肢体损伤系统 v1 的数据层、同步与基础惩罚已实现：
+
+- 权威槽位固定为 `LEFT_ARM`、`RIGHT_ARM`、`LEGS`，其中 `LEGS` 代表双腿整体。状态类型固定支持 `INTACT`、`BROKEN`、`GRAFTED`；v1 只正式使用前两者，`GRAFTED` 与可选 replacement `Identifier` 仅作为后续嫁接系统的数据/API 结构，不附带能力。
+- `PlayerEntity` DataTracker 使用一个 byte 的紧凑 flags，每槽占 2 bits（左臂 bits 0–1、右臂 bits 2–3、双腿 bits 4–5）。服务端是唯一写入权威；本地及附近客户端自动收到 flags，可直接通过只读 `LimbData.getState(PlayerEntity, LimbSlot)` 查询，为下一轮 PlayerModel 表现提供数据。
+- 玩家 NBT 根键为 `thecost_limbs`，保存三槽状态、每槽可选 replacement 字符串和全局 `arm_break_count`。缺失槽、非法状态、非法 replacement 或没有合法 replacement 的 `GRAFTED` 均安全回退 `INTACT`；语法合法但当前未知的 replacement ID 原样保存，不查询不存在的注册表对象。
+- 肢体数据在退出重进、死亡/重生和跨维度后保留；断肢绝不计时、自然恢复或因普通伤害恢复。所有修改统一经过 `LimbData.breakLimb`、`restore`、`restoreAll`、`setReplacement`，幂等写入后统一校正惩罚；不得在其他 Mixin 直接改 NBT。
+- `LimbBreakService.selectAndBreakNextArm` 集中保存未来 Deerclops 调用的顺序：`armBreakCount=0` 必选左臂；`=1` 时右臂 70%/左臂 30%；`>=2` 必选右臂。只有显式 `next_arm` 选择事件增加计数，普通定向调试 break 和查询不增加；计数不因 restore 回退。
+- 只有存活的生存/冒险玩家承受惩罚；creative/spectator 保留状态但临时解除全部限制，切回后立即幂等校正。加入、重生、跨维度、模式切换、旧档读取和每次统一写入都会校正，属性清理只按 The Cost 固定 UUID 操作。
+- `BROKEN LEGS` 添加固定 UUID transient modifier：移动速度 `MULTIPLY_TOTAL -0.40`（保留原版 60%）、攻击伤害 `MULTIPLY_TOTAL -0.50`；允许原版跳跃，但继续阻止 climbing，并使用下文的贴地姿态与腿部模型隐藏。校正会按同一 UUID 检查数值并替换旧的 `-0.75` modifier，特殊原版姿态仍优先。只有 `BROKEN` 触发这些效果，`INTACT/GRAFTED` 不受影响。
+- 用户最新确认的断臂规则覆盖旧的“绝对空手/绝对禁用”：`BROKEN RIGHT_ARM` 对应主手，`BROKEN LEFT_ARM` 对应副手；断臂玩家可以正常持有、切换、拾取和在 GUI 中放置物品，`thecost:requires_two_hands` 标签保留但当前不参与惩罚。
+- 只有主动使用对应手时，由服务端 `LimbGripService` 使用唯一常量 `DROP_CHANCE=0.10` 判定一次：主手覆盖近战攻击、`START_DESTROY_BLOCK`、物品/方块/实体交互，副手覆盖物品/方块/实体交互。空手、单纯持有、滚轮、交换键、GUI、拾取、走路和站立不判定；creative/spectator 不判定；双臂断裂也只按本次实际使用的手判定一次。
+- 90% 成功时完全沿用原版动作；10% 失败时先取消动作并 `stopUsingItem`，从准确手槽移除完整 ItemStack、同步物品栏，再通过原版 `dropItem` 路径甩出。掉落保留数量、耐久、附魔和自定义 NBT；若实体未真正进入当前 `ServerWorld`，恢复同一 ItemStack 并重新同步，但该次动作仍取消。提示键为 `message.thecost.limb.grip_failed`，沿用每玩家 40 ticks 节流。
+- 断臂不再绝对禁止近战、挖掘、副手交互或双手物品，也没有服务器每 tick 清空手槽的路径。不阻止走路、聊天、开门、背包或未来 Grafting Altar 交互；“拳击伤害固定为 1”仍未实现。
+- 被阻止操作使用 `message.thecost.limb.*` actionbar 翻译键，提供 `en_us`、`zh_cn`。普通伤害、摔落与 Witness 不调用断肢 API；未来仅允许 Deerclops 明确招式调用统一选择服务。
+- 调试命令：`/thecost limb get [target]`；权限等级 2 的 `/thecost limb break <left_arm|right_arm|legs> [target]`、`restore <left_arm|right_arm|legs|all> [target]`。另提供显式测试命令 `break next_arm [target]`，它会真实执行集中选择并增加一次 `armBreakCount`，不存在“查询导致计数增加”的歧义。输出包含三槽状态、计数和当前实际惩罚资格。
+- Grafting Altar 必须依赖本数据层和统一 API，不得先做脱离真实肢体状态的空壳祭坛。Boss 肢体、能力、正式 HUD、自然恢复、血液或断面美术均未实现。
+
+统一人工测试追加：断腿移动速度只降至原版 60%、攻击伤害减半、允许跳跃但不能攀爬，restore 立即解除其余惩罚；断臂只持物、滚轮、交换键、GUI 和拾取均不触发判定，主动攻击、开始挖掘、使用或交互时按实际手最多判定一次 10%。失败取消动作并完整掉物，成功完全走原版；双断臂不会对同一动作重复判定。验证物品数量、耐久、附魔/NBT 不变且不复制、不删除，并覆盖死亡重生、重进、跨维度和 creative/spectator 往返、附近客户端 flags，以及 `next_arm` 顺序。
+
+玩家肢体模型与姿态表现 v1 已实现：
+
+- common `PlayerEntityLimbMixin` 在 `PlayerEntity.updatePose` 完成原版选择后进行局部校正：只有存活、生存/冒险且 `LEGS=BROKEN` 的玩家，在原版没有选中更高优先级姿态时改为 `EntityPose.SWIMMING`。这同时取得原版低碰撞箱、低视角和陆地游泳/贴地动作，不使用每 tick 无条件 `setPose`，也不修改全局 `LivingEntity`。
+- 原版特殊姿态优先：真实 `SWIMMING` 保持原样；`SLEEPING`、`FALL_FLYING`、`SPIN_ATTACK`、`DYING`、骑乘/载具，以及 `isSleeping`、`isFallFlying`、`isUsingRiptide` 均不会被强制覆盖。creative/spectator 不强制贴地；restore 或模式切换后，下一次原版 `updatePose` 自然恢复合适姿态。
+- Minecraft 1.20.1 的 `LivingEntity.updateLeaningPitch` 会在 `isInSwimmingPose()` 时每 tick 以 0.09 向 1.0 插值；强制姿态会进入同一原版路径，因此第三人称可得到完整游泳动画，无需额外客户端写死 `leaningPitch`。断腿允许原版跳跃，已有攀爬限制继续生效。
+- client `PlayerEntityRendererLimbMixin` 在 `PlayerEntityRenderer.render` 调用原版 `setModelPose` 之后，按该具体玩家 DataTracker 状态隐藏 `leftArm + leftSleeve` 或 `rightArm + rightSleeve`；`LEGS=BROKEN` 同时隐藏 `leftLeg + rightLeg + leftPants + rightPants`。只有 `BROKEN` 隐藏，`INTACT/GRAFTED` 保持原样。Classic/Steve 与 Slim/Alex 共用这些明确字段，因此同时覆盖且不会反向。
+- renderer 在每次渲染前保存手臂、袖层、双腿和裤腿共八个 ModelPart 的原始 `visible`，渲染返回后逐项精确恢复；原版 `setModelPose` 也会为每个实体重建皮肤部件可见性。模型实例复用时不会把断肢状态泄漏到下一名健康玩家，帽子与外套不受修改。
+- client `ArmorFeatureRendererLimbMixin` 在每件盔甲调用 `setVisible` 后隐藏对应 `BipedEntityModel.leftArm/rightArm`；`LEGS=BROKEN` 隐藏 `leftLeg/rightLeg`，因此护腿和靴子都不会悬空。传入模型是当前装备槽实际选择的 inner 或 outer armor model，两层均覆盖；渲染返回后精确恢复手臂和腿部原值，非玩家实体与 body 不受影响。
+- 第一人称手臂本轮明确不处理：1.20.1 的 HeldItemRenderer 将手臂、持有物、双手地图与望远镜组合在不同路径中，宽泛取消会导致物品漂浮或破坏特殊渲染。待后续有独立手臂/物品替代表现设计时再做局部覆盖。
+- client `HeldItemFeatureRendererLimbMixin` 仅接管第三人称中由 `BROKEN` 手臂实际渲染的 ItemStack：以当前 `BipedEntityModel.head` 的 yaw/pitch 为基准，将物品放到脸前嘴边；左右手使用相反的 0.10 格横向偏移，双臂断裂且两手持物时不会完全重叠。健康和 `GRAFTED` 手完全走原版，矩阵使用严格 `push/pop`，不影响下一物品、实体或 feature。第一人称仍保持原版，这是为避免破坏地图、望远镜和双手特殊渲染的明确取舍。
+- 所有 `net.minecraft.client` 引用只存在 client source set；common 姿态代码只依赖实体 API。restore、重生、跨维度和客户端重新跟踪玩家后均继续使用现有 DataTracker flags，无需重新连接。
+
+统一人工测试追加：第三人称验证左/右 arm、sleeve、内外盔甲对应方向；断腿验证 left/right leg、pants、护腿和靴子全部不可见。连续渲染断肢与健康玩家确认无可见性泄漏，并覆盖 Steve/Alex。断腿仍在陆地进入低碰撞箱、低视角和完整游泳动作；真实游泳、睡眠、鞘翅、旋转攻击、载具、死亡、creative/spectator 不被覆盖，restore 后所有模型与姿态恢复。第一人称仍显示原版手臂是当前已知限制。
+
+Grafting Altar 功能基础版已实现：
+
+- 注册单方块 `thecost:grafting_altar`、对应 BlockItem、BlockEntity 与 ScreenHandler。方块使用朝向状态、分层轮廓碰撞箱和持久化两格库存；破坏时通过原版 `ItemScatterer` 安全返还材料。当前无生存合成配方，开发测试使用 `/give @s thecost:grafting_altar`。
+- 祭坛只有 `SanityStage.FRACTURED` 玩家能够打开；Lucid/Ascended 在服务端被拒绝。确认按钮再次在服务端校验玩家仍可使用该方块、仍为 Fractured、选中槽仍为 `BROKEN` 且材料仍有效，客户端不能直接修改肢体数据。
+- 两个材料入口均为数据包可扩展的物品标签：`thecost:grafting_components` 默认含铁锭，`thecost:grafting_catalysts` 默认含紫水晶碎片。每次成功嫁接各消耗 1 个；BlockEntity 库存写入 NBT，退出界面或区块卸载不会丢失。
+- UI 读取现有玩家 DataTracker 肢体镜像显示左臂、右臂、双腿的 `INTACT/BROKEN/GRAFTED` 状态；选中状态由每个 ScreenHandler 独立同步。界面使用骨白、冷蓝、暗金的程序化占位绘制，不依赖外部图片，也未实现已延期的 Runic Circle 绘图 UI。
+- 成功时只通过统一 `LimbData.setReplacement` 将目标从 `BROKEN` 写为 `GRAFTED`，replacement ID 集中使用 `thecost:basic_left_arm`、`thecost:basic_right_arm` 或 `thecost:basic_legs`。基础嫁接当前没有额外能力；因为现有 renderer 只隐藏 `BROKEN`，成功后会恢复原版玩家部件，而非显示正式义肢模型。自定义嫁接部件模型与能力是后续工作。
+- 静态祭坛占位模型位于标准 blockstates/models 目录，目前以原版骨块、深板岩、金块和浮冰纹理组合验证模型与朝向接线；正式 Blockbench 模型和项目自有贴图后续可直接替换资源，不改变 BlockEntity 或 UI 协议。
+
+统一人工测试追加：在 Fractured 下放置并打开祭坛，验证铁锭/紫水晶标签槽、shift-click、库存持久化和破坏返还；分别对三种 `BROKEN` 槽嫁接，确认各消耗 1 个材料、状态变为 `GRAFTED`、replacement ID 保留至重进/重生/跨维度且断肢惩罚解除。验证 Lucid/Ascended 无法打开，远离或破坏祭坛后旧界面按钮不能执行，以及正常/已嫁接槽不能重复消耗材料。
 
 ## 验证命令
 

@@ -1,5 +1,7 @@
 package com.lenefun.thecost.command;
 
+import com.lenefun.thecost.entity.witness.ManagedWitnessManager;
+import com.lenefun.thecost.entity.witness.WitnessDebugSnapshot;
 import com.lenefun.thecost.sanity.SanityData;
 import com.lenefun.thecost.sanity.SanityStage;
 import com.lenefun.thecost.sanity.environment.SanityEnvironmentManager;
@@ -20,14 +22,17 @@ public final class SanityCommand {
 	}
 
 	public static void register() {
-		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
-				dispatcher.register(literal("thecost")
-						.then(literal("sanity")
+		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
+			var root = literal("thecost")
+					.then(literal("sanity")
 								.then(literal("get")
 										.executes(context -> report(context.getSource())))
 								.then(literal("environment")
 										.requires(source -> source.hasPermissionLevel(MODIFY_PERMISSION_LEVEL))
 										.executes(context -> reportEnvironment(context.getSource())))
+								.then(literal("witness")
+										.requires(source -> source.hasPermissionLevel(MODIFY_PERMISSION_LEVEL))
+										.executes(context -> reportWitness(context.getSource())))
 								.then(literal("set")
 										.requires(source -> source.hasPermissionLevel(MODIFY_PERMISSION_LEVEL))
 										.then(argument("value", IntegerArgumentType.integer())
@@ -39,7 +44,10 @@ public final class SanityCommand {
 										.then(argument("delta", IntegerArgumentType.integer())
 												.executes(context -> add(
 														context.getSource(),
-														IntegerArgumentType.getInteger(context, "delta"))))))));
+												IntegerArgumentType.getInteger(context, "delta"))))));
+			root.then(LimbCommand.create());
+			dispatcher.register(root);
+		});
 	}
 
 	private static int report(ServerCommandSource source) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
@@ -72,5 +80,25 @@ public final class SanityCommand {
 						+ ", eligible=" + SanityEnvironmentManager.isEligible(player)
 						+ ", nextChange=" + nextChange), false);
 		return snapshot.lightLevel();
+	}
+
+	private static int reportWitness(ServerCommandSource source) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+		ServerPlayerEntity player = source.getPlayerOrThrow();
+		WitnessDebugSnapshot snapshot = ManagedWitnessManager.inspect(player);
+		String entity = snapshot.entityUuid() == null ? "none" : snapshot.entityUuid().toString();
+		String distance = snapshot.distance() < 0.0D
+				? "none"
+				: String.format(java.util.Locale.ROOT, "%.1f", snapshot.distance());
+		String cooldown = snapshot.cooldownTicks() < 0L
+				? "inactive"
+				: String.format(java.util.Locale.ROOT, "%.1fs", snapshot.cooldownTicks() / 20.0D);
+		source.sendFeedback(() -> Text.literal(
+				"Managed Witness: desired=" + snapshot.desiredMode()
+						+ ", active=" + snapshot.activeMode()
+						+ ", entity=" + entity
+						+ ", distance=" + distance
+						+ ", cooldown=" + cooldown
+						+ ", eligible=" + snapshot.eligible()), false);
+		return snapshot.activeMode().getTrackedId();
 	}
 }

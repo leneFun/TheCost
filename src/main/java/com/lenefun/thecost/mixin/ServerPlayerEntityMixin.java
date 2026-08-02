@@ -1,5 +1,7 @@
 package com.lenefun.thecost.mixin;
 
+import com.lenefun.thecost.entity.witness.ManagedWitnessManager;
+import com.lenefun.thecost.limb.LimbData;
 import com.lenefun.thecost.sanity.SanityData;
 import com.lenefun.thecost.sanity.SanityHolder;
 import com.lenefun.thecost.sanity.SanityNetworking;
@@ -37,6 +39,7 @@ public abstract class ServerPlayerEntityMixin implements SanityHolder {
 
 		if (thecost$sanity == clampedSanity) {
 			AscendedCombatManager.reconcile(player);
+			ManagedWitnessManager.onSanityChanged(player);
 			return;
 		}
 
@@ -45,6 +48,7 @@ public abstract class ServerPlayerEntityMixin implements SanityHolder {
 
 		thecost$sanity = clampedSanity;
 		AscendedCombatManager.reconcile(player);
+		ManagedWitnessManager.onSanityChanged(player);
 		SanityNetworking.sync(player);
 		if (oldStage != newStage && player.networkHandler != null) {
 			player.sendMessage(Text.translatable(newStage.getTransitionTranslationKey()), true);
@@ -72,6 +76,7 @@ public abstract class ServerPlayerEntityMixin implements SanityHolder {
 	@Inject(method = "writeCustomDataToNbt", at = @At("TAIL"))
 	private void thecost$writeSanity(NbtCompound nbt, CallbackInfo callbackInfo) {
 		nbt.putInt(SanityData.NBT_KEY, thecost$sanity);
+		LimbData.writeNbt((ServerPlayerEntity) (Object) this, nbt);
 	}
 
 	@Inject(method = "readCustomDataFromNbt", at = @At("TAIL"))
@@ -79,5 +84,6 @@ public abstract class ServerPlayerEntityMixin implements SanityHolder {
 		thecost$sanity = nbt.contains(SanityData.NBT_KEY)
 				? SanityData.clamp(nbt.getInt(SanityData.NBT_KEY))
 				: SanityData.DEFAULT_VALUE;
+		LimbData.readNbt((ServerPlayerEntity) (Object) this, nbt);
 	}
 }
