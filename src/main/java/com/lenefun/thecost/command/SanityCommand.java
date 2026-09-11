@@ -46,6 +46,9 @@ public final class SanityCommand {
 														context.getSource(),
 												IntegerArgumentType.getInteger(context, "delta"))))));
 			root.then(LimbCommand.create());
+			root.then(SeasonCommand.create());
+			root.then(TemperatureCommand.create());
+			root.then(DeerclopsCommand.create());
 			dispatcher.register(root);
 		});
 	}
@@ -72,11 +75,15 @@ public final class SanityCommand {
 		ServerPlayerEntity player = source.getPlayerOrThrow();
 		SanityEnvironmentSnapshot snapshot = SanityEnvironmentManager.inspect(player);
 		int remainingTicks = SanityEnvironmentManager.getTicksUntilNextChange(player, snapshot);
-		String nextChange = remainingTicks < 0 ? "none" : (remainingTicks / 20) + "s";
+		String nextChange = remainingTicks < 0
+				? "none"
+				: String.format(java.util.Locale.ROOT, "%.1fs", remainingTicks / 20.0D);
 		source.sendFeedback(() -> Text.literal(
 				"Sanity environment: light=" + snapshot.lightLevel()
-						+ ", warmSource=" + snapshot.warmSourceNearby()
+						+ ", skyVisible=" + snapshot.skyVisible()
+						+ ", darkPhase=" + snapshot.darkPhase()
 						+ ", state=" + snapshot.state().getDisplayName()
+						+ ", rate=" + snapshot.state().getSanityPerMinute() + "/min"
 						+ ", eligible=" + SanityEnvironmentManager.isEligible(player)
 						+ ", nextChange=" + nextChange), false);
 		return snapshot.lightLevel();

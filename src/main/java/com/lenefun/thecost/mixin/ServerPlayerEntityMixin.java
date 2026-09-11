@@ -8,6 +8,10 @@ import com.lenefun.thecost.sanity.SanityNetworking;
 import com.lenefun.thecost.sanity.SanityRestrictions;
 import com.lenefun.thecost.sanity.SanityStage;
 import com.lenefun.thecost.sanity.combat.AscendedCombatManager;
+import com.lenefun.thecost.temperature.TemperatureConfig;
+import com.lenefun.thecost.temperature.TemperatureData;
+import com.lenefun.thecost.temperature.TemperatureHolder;
+import com.lenefun.thecost.temperature.TemperatureNetworking;
 import com.mojang.datafixers.util.Either;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.nbt.NbtCompound;
@@ -23,9 +27,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(ServerPlayerEntity.class)
-public abstract class ServerPlayerEntityMixin implements SanityHolder {
+public abstract class ServerPlayerEntityMixin implements SanityHolder, TemperatureHolder {
 	@Unique
 	private int thecost$sanity = SanityData.DEFAULT_VALUE;
+	@Unique
+	private float thecost$bodyTemperature = TemperatureConfig.DEFAULT_BODY_TEMPERATURE;
 
 	@Override
 	public int thecost$getSanity() {
@@ -60,6 +66,26 @@ public abstract class ServerPlayerEntityMixin implements SanityHolder {
 		thecost$sanity = SanityData.clamp(sanity);
 	}
 
+	@Override
+	public float thecost$getBodyTemperature() {
+		return thecost$bodyTemperature;
+	}
+
+	@Override
+	public void thecost$setBodyTemperature(float temperature) {
+		float clamped = TemperatureData.clamp(temperature);
+		if (Float.compare(thecost$bodyTemperature, clamped) == 0) {
+			return;
+		}
+		thecost$bodyTemperature = clamped;
+		TemperatureNetworking.sync((ServerPlayerEntity) (Object) this);
+	}
+
+	@Override
+	public void thecost$setBodyTemperatureSilently(float temperature) {
+		thecost$bodyTemperature = TemperatureData.clamp(temperature);
+	}
+
 	@Inject(method = "trySleep", at = @At("HEAD"), cancellable = true)
 	private void thecost$preventLowSanitySleep(
 			BlockPos position,
@@ -76,6 +102,7 @@ public abstract class ServerPlayerEntityMixin implements SanityHolder {
 	@Inject(method = "writeCustomDataToNbt", at = @At("TAIL"))
 	private void thecost$writeSanity(NbtCompound nbt, CallbackInfo callbackInfo) {
 		nbt.putInt(SanityData.NBT_KEY, thecost$sanity);
+		nbt.putFloat(TemperatureData.NBT_KEY, thecost$bodyTemperature);
 		LimbData.writeNbt((ServerPlayerEntity) (Object) this, nbt);
 	}
 
@@ -84,6 +111,9 @@ public abstract class ServerPlayerEntityMixin implements SanityHolder {
 		thecost$sanity = nbt.contains(SanityData.NBT_KEY)
 				? SanityData.clamp(nbt.getInt(SanityData.NBT_KEY))
 				: SanityData.DEFAULT_VALUE;
+		thecost$bodyTemperature = nbt.contains(TemperatureData.NBT_KEY)
+				? TemperatureData.clamp(nbt.getFloat(TemperatureData.NBT_KEY))
+				: TemperatureConfig.DEFAULT_BODY_TEMPERATURE;
 		LimbData.readNbt((ServerPlayerEntity) (Object) this, nbt);
 	}
 }
